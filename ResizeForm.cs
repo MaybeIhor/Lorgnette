@@ -16,6 +16,8 @@ namespace Monocle
         [System.Runtime.InteropServices.DllImport("dwmapi.dll", PreserveSig = true)]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, int[] val, int size);
 
+        private static readonly int[] darkAttr = new[] { 1 };
+
         public ResizeForm(int currentWidth, int currentHeight, bool dark)
         {
             InitializeComponent();
@@ -29,13 +31,10 @@ namespace Monocle
 
         public void GetDark()
         {
-            DwmSetWindowAttribute(Handle, 20, new[] { 1 }, 4);
-            toolStrip.BackColor = Color.FromArgb(25, 25, 25);
-            widthBox.BackColor = Color.FromArgb(25, 25, 25);
-            heightBox.BackColor = Color.FromArgb(25, 25, 25);
-            toolStrip.ForeColor = SystemColors.Window;
-            widthBox.ForeColor = SystemColors.Window;
-            heightBox.ForeColor = SystemColors.Window;
+            DwmSetWindowAttribute(Handle, 20, darkAttr, 4);
+            var bg = Color.FromArgb(25, 25, 25);
+            toolStrip.BackColor = widthBox.BackColor = heightBox.BackColor = bg;
+            toolStrip.ForeColor = widthBox.ForeColor = heightBox.ForeColor = SystemColors.Window;
         }
 
         private void SmoothButton_Click(object sender, EventArgs e)

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
@@ -8,11 +9,18 @@ namespace Image_View
 {
     public partial class DontBlurBox : PictureBox
     {
+        private struct State
+        {
+            public Bitmap Image;
+            public Rectangle? Crop;
+        }
+
         private bool isDown;
         private Point p1, p2;
         private Rectangle imageRect;
         private double scale;
-        private Rectangle? crop;
+        private readonly Stack<State> history = new Stack<State>();
+        private Rectangle? crop => history.Count > 0 ? history.Peek().Crop : (Rectangle?)null;
         private Bitmap cachedImage;
         private readonly Timer resizeTimer;
         private bool isResizing;
@@ -36,15 +44,27 @@ namespace Image_View
 
         public new Image Image
         {
-            get => base.Image;
+            get => history.Count > 0 ? history.Peek().Image : null;
             set
             {
-                if (base.Image != value)
-                {
-                    base.Image = value;
-                    InvalidateCache();
-                }
+                ClearHistory();
+                if (value != null)
+                    history.Push(new State { Image = value as Bitmap ?? new Bitmap(value), Crop = null });
+                InvalidateBoth();
             }
+        }
+
+        private void ClearHistory()
+        {
+            foreach (var s in history)
+                s.Image?.Dispose();
+            history.Clear();
+        }
+
+        private void PushState(Bitmap img, Rectangle? newCrop)
+        {
+            history.Push(new State { Image = img, Crop = newCrop });
+            InvalidateBoth();
         }
 
         public void InvalidateCache()
@@ -59,75 +79,128 @@ namespace Image_View
             Invalidate();
         }
 
-        public void ResetCrop()
+        public bool CanUndo => history.Count > 1;
+
+        public void Undo()
         {
-            crop = null;
+            if (history.Count <= 1) return;
+            var top = history.Pop();
+            if (top.Image != history.Peek().Image)
+                top.Image?.Dispose();
+            InvalidateBoth();
+        }
+
+        public void ResetAll()
+        {
+            if (history.Count <= 1) return;
+            var states = history.ToArray();
+            var bottom = states[states.Length - 1];
+            ClearHistory();
+            history.Push(bottom);
             InvalidateBoth();
         }
 
         public Rectangle? GetCrop() => crop;
 
-        public void Crop90()
+        public void Rotate90()
         {
-            if (!crop.HasValue || Image == null) return;
-            var c = crop.Value;
-            crop = new Rectangle(Image.Width - c.Y - c.Height, c.X, c.Height, c.Width);
+            if (history.Count == 0) return;
+            var src = history.Peek().Image;
+            var bmp = new Bitmap(src.Height, src.Width, src.PixelFormat);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.TranslateTransform(bmp.Width, 0);
+                g.RotateTransform(90);
+                g.DrawImage(src, 0, 0);
+            }
+            PushState(bmp, crop.HasValue
+                ? new Rectangle(src.Height - crop.Value.Y - crop.Value.Height, crop.Value.X, crop.Value.Height, crop.Value.Width)
+                : (Rectangle?)null);
         }
 
-        public void Crop270()
+        public void Rotate270()
         {
-            if (!crop.HasValue || Image == null) return;
-            var c = crop.Value;
-            crop = new Rectangle(c.Y, Image.Height - c.X - c.Width, c.Height, c.Width);
+            if (history.Count == 0) return;
+            var src = history.Peek().Image;
+            var bmp = new Bitmap(src.Height, src.Width, src.PixelFormat);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.TranslateTransform(0, bmp.Height);
+                g.RotateTransform(270);
+                g.DrawImage(src, 0, 0);
+            }
+            PushState(bmp, crop.HasValue
+                ? new Rectangle(crop.Value.Y, src.Width - crop.Value.X - crop.Value.Width, crop.Value.Height, crop.Value.Width)
+                : (Rectangle?)null);
         }
 
-        public void CropMirror()
+        public void Mirror()
         {
-            if (!crop.HasValue || Image == null) return;
-            var c = crop.Value;
-            crop = new Rectangle(Image.Width - c.X - c.Width, c.Y, c.Width, c.Height);
+            if (history.Count == 0) return;
+            var src = history.Peek().Image;
+            var bmp = new Bitmap(src.Width, src.Height, src.PixelFormat);
+            using (var g = Graphics.FromImage(bmp))
+            {
+                g.TranslateTransform(bmp.Width, 0);
+                g.ScaleTransform(-1, 1);
+                g.DrawImage(src, 0, 0);
+            }
+            PushState(bmp, crop.HasValue
+                ? new Rectangle(src.Width - crop.Value.X - crop.Value.Width, crop.Value.Y, crop.Value.Width, crop.Value.Height)
+                : (Rectangle?)null);
+        }
+
+        public void Resize(int newWidth, int newHeight, InterpolationMode mode)
+        {
+            if (history.Count == 0) return;
+            using (var src = GetVisible())
+            {
+                var bmp = new Bitmap(newWidth, newHeight,
+                    src.PixelFormat == PixelFormat.Format32bppArgb ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb);
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.CompositingMode = CompositingMode.SourceCopy;
+                    g.CompositingQuality = CompositingQuality.HighQuality;
+                    g.InterpolationMode = mode;
+                    g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    g.DrawImage(src, 0, 0, newWidth, newHeight);
+                }
+                PushState(bmp, null);
+            }
         }
 
         public Image GetVisible()
         {
-            var sourceRect = crop ?? new Rectangle(0, 0, Image.Width, Image.Height);
-            var croppedImage = new Bitmap(sourceRect.Width, sourceRect.Height, Image.PixelFormat);
-
-            using (var g = Graphics.FromImage(croppedImage))
+            if (history.Count == 0) return null;
+            var cur = history.Peek();
+            var sourceRect = cur.Crop ?? new Rectangle(0, 0, cur.Image.Width, cur.Image.Height);
+            var result = new Bitmap(sourceRect.Width, sourceRect.Height, cur.Image.PixelFormat);
+            using (var g = Graphics.FromImage(result))
             {
                 g.CompositingMode = CompositingMode.SourceCopy;
                 g.CompositingQuality = CompositingQuality.HighQuality;
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                g.DrawImage(Image, new Rectangle(0, 0, sourceRect.Width, sourceRect.Height), sourceRect, GraphicsUnit.Pixel);
+                g.DrawImage(cur.Image, new Rectangle(0, 0, sourceRect.Width, sourceRect.Height), sourceRect, GraphicsUnit.Pixel);
             }
-            return croppedImage;
+            return result;
         }
 
         private void CalculateImageBounds()
         {
-            if (Image == null) return;
+            if (history.Count == 0) return;
+            var cur = history.Peek();
 
-            var imgAspect = crop.HasValue ? (double)crop.Value.Width / crop.Value.Height : (double)Image.Width / Image.Height;
-            var ctrlAspect = (double)Width / Height;
+            int imgW = cur.Crop?.Width ?? cur.Image.Width;
+            int imgH = cur.Crop?.Height ?? cur.Image.Height;
+            double imgAspect = (double)imgW / imgH;
+            double ctrlAspect = (double)Width / Height;
 
             int w, h;
-            if (imgAspect > ctrlAspect)
-            {
-                w = Width;
-                h = (int)(Width / imgAspect);
-            }
-            else
-            {
-                h = Height;
-                w = (int)(Height * imgAspect);
-            }
+            if (imgAspect > ctrlAspect) { w = Width; h = (int)(Width / imgAspect); }
+            else { h = Height; w = (int)(Height * imgAspect); }
 
             imageRect = new Rectangle((Width - w) / 2, (Height - h) / 2, w, h);
-
-            if (crop.HasValue)
-                scale = Math.Min((double)w / crop.Value.Width, (double)h / crop.Value.Height);
-            else
-                scale = Math.Min((double)w / Image.Width, (double)h / Image.Height);
+            scale = Math.Min((double)w / imgW, (double)h / imgH);
         }
 
         private Point ClampToImage(Point pt) => new Point(
@@ -145,36 +218,27 @@ namespace Image_View
 
         private void DrawGrid(Graphics g)
         {
-            if (!isGridding || Image == null) return;
-
-            int left = imageRect.Left, right = imageRect.Right;
-            int top = imageRect.Top, bottom = imageRect.Bottom;
-            int width = imageRect.Width, height = imageRect.Height;
-
-            int centerX = left + width / 2;
-            int centerY = top + height / 2;
-
-            g.DrawLine(crossPen, centerX, top, centerX, bottom);
-            g.DrawLine(crossPen, left, centerY, right, centerY);
-
-            int quarterX1 = left + width / 4, quarterX2 = left + 3 * width / 4;
-            int quarterY1 = top + height / 4, quarterY2 = top + 3 * height / 4;
-
-            g.DrawLine(crossPen, quarterX1, top, quarterX1, bottom);
-            g.DrawLine(crossPen, quarterX2, top, quarterX2, bottom);
-            g.DrawLine(crossPen, left, quarterY1, right, quarterY1);
-            g.DrawLine(crossPen, left, quarterY2, right, quarterY2);
+            if (!isGridding || history.Count == 0) return;
+            int l = imageRect.Left, r = imageRect.Right, t = imageRect.Top, b = imageRect.Bottom;
+            int w = imageRect.Width, h = imageRect.Height;
+            g.DrawLine(crossPen, l + w / 2, t, l + w / 2, b);
+            g.DrawLine(crossPen, l, t + h / 2, r, t + h / 2);
+            g.DrawLine(crossPen, l + w / 4, t, l + w / 4, b);
+            g.DrawLine(crossPen, l + 3 * w / 4, t, l + 3 * w / 4, b);
+            g.DrawLine(crossPen, l, t + h / 4, r, t + h / 4);
+            g.DrawLine(crossPen, l, t + 3 * h / 4, r, t + 3 * h / 4);
         }
 
         private void DrawFrame(Graphics g)
         {
-            if (isFramed && Image != null)
+            if (isFramed && history.Count > 0)
                 g.DrawRectangle(crossPen, imageRect.X - 1, imageRect.Y - 1, imageRect.Width + 1, imageRect.Height + 1);
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            if (Image == null) return;
+            if (history.Count == 0) return;
+            var cur = history.Peek();
 
             CalculateImageBounds();
 
@@ -188,16 +252,16 @@ namespace Image_View
                     g.Clear(BackColor);
                     g.PixelOffsetMode = PixelOffsetMode.Half;
 
-                    int dimension = crop?.Width ?? Image.Width;
-                    bool useFastMode = isResizing || dimension < 512 || (crop.HasValue && crop.Value.Height < 512);
+                    int dimension = cur.Crop?.Width ?? cur.Image.Width;
+                    bool useFastMode = isResizing || dimension < 512 || (cur.Crop.HasValue && cur.Crop.Value.Height < 512);
 
                     g.InterpolationMode = useFastMode ? InterpolationMode.NearestNeighbor : InterpolationMode.HighQualityBicubic;
                     g.CompositingQuality = useFastMode ? CompositingQuality.HighSpeed : CompositingQuality.HighQuality;
 
-                    if (crop.HasValue)
-                        g.DrawImage(Image, imageRect, crop.Value, GraphicsUnit.Pixel);
+                    if (cur.Crop.HasValue)
+                        g.DrawImage(cur.Image, imageRect, cur.Crop.Value, GraphicsUnit.Pixel);
                     else
-                        g.DrawImage(Image, imageRect);
+                        g.DrawImage(cur.Image, imageRect);
                 }
             }
 
@@ -208,11 +272,8 @@ namespace Image_View
             if (isDown && !p2.IsEmpty)
             {
                 var rect = new Rectangle(
-                    Math.Min(p1.X, p2.X),
-                    Math.Min(p1.Y, p2.Y),
-                    Math.Abs(p1.X - p2.X),
-                    Math.Abs(p1.Y - p2.Y));
-
+                    Math.Min(p1.X, p2.X), Math.Min(p1.Y, p2.Y),
+                    Math.Abs(p1.X - p2.X), Math.Abs(p1.Y - p2.Y));
                 using (var region = new Region(imageRect))
                 {
                     region.Exclude(rect);
@@ -224,21 +285,10 @@ namespace Image_View
 
         private void OnMouseDown(object sender, MouseEventArgs e)
         {
-            if (Image == null || e.Button != MouseButtons.Left)
-            {
-                isDown = false;
-                return;
-            }
-
-            int minDim = crop?.Width ?? Image.Width;
-            minDim = Math.Min(minDim, crop?.Height ?? Image.Height);
-
-            if (minDim <= 6)
-            {
-                isDown = false;
-                return;
-            }
-
+            if (history.Count == 0 || e.Button != MouseButtons.Left) { isDown = false; return; }
+            var cur = history.Peek();
+            int minDim = Math.Min(cur.Crop?.Width ?? cur.Image.Width, cur.Crop?.Height ?? cur.Image.Height);
+            if (minDim <= 6) { isDown = false; return; }
             p1 = SnapToPixel(ClampToImage(e.Location));
             p2 = Point.Empty;
             isDown = true;
@@ -246,71 +296,47 @@ namespace Image_View
 
         private Point SnapToPixel(Point screenPoint)
         {
-            double pixelX = (screenPoint.X - imageRect.X) / scale;
-            double pixelY = (screenPoint.Y - imageRect.Y) / scale;
-
-            int snappedPixelX = (int)Math.Round(pixelX);
-            int snappedPixelY = (int)Math.Round(pixelY);
-
-            return new Point(
-                imageRect.X + (int)Math.Round(snappedPixelX * scale),
-                imageRect.Y + (int)Math.Round(snappedPixelY * scale));
+            int snappedX = (int)Math.Round((screenPoint.X - imageRect.X) / scale);
+            int snappedY = (int)Math.Round((screenPoint.Y - imageRect.Y) / scale);
+            return new Point(imageRect.X + (int)Math.Round(snappedX * scale), imageRect.Y + (int)Math.Round(snappedY * scale));
         }
 
         private void OnMouseMove(object sender, MouseEventArgs e)
         {
-            if (isDown && Image != null)
-            {
-                p2 = ClampToImage(e.Location);
-                Invalidate();
-            }
+            if (isDown && history.Count > 0) { p2 = ClampToImage(e.Location); Invalidate(); }
         }
 
         private void OnMouseUp(object sender, MouseEventArgs e)
         {
-            if (Image == null || e.Button != MouseButtons.Left)
-            {
-                isDown = false;
-                return;
-            }
-
+            if (history.Count == 0 || e.Button != MouseButtons.Left) { isDown = false; return; }
             Cursor.Current = Cursors.Default;
             isDown = false;
-
             if (!p2.IsEmpty && Math.Abs(p1.X - p2.X) > 20 && Math.Abs(p1.Y - p2.Y) > 20)
-                ApplyCrop();
-
+                ApplyCropFromDrag();
             Invalidate();
         }
 
-        private void ApplyCrop()
+        private void ApplyCropFromDrag()
         {
+            var cur = history.Peek();
             int x1 = (int)Math.Round((p1.X - imageRect.X) / scale);
             int y1 = (int)Math.Round((p1.Y - imageRect.Y) / scale);
             int x2 = (int)Math.Round((p2.X - imageRect.X) / scale);
             int y2 = (int)Math.Round((p2.Y - imageRect.Y) / scale);
 
-            if (crop.HasValue)
+            if (cur.Crop.HasValue)
             {
-                x1 += crop.Value.X;
-                y1 += crop.Value.Y;
-                x2 += crop.Value.X;
-                y2 += crop.Value.Y;
+                x1 += cur.Crop.Value.X; y1 += cur.Crop.Value.Y;
+                x2 += cur.Crop.Value.X; y2 += cur.Crop.Value.Y;
             }
 
             int minX = Math.Max(0, Math.Min(x1, x2));
             int minY = Math.Max(0, Math.Min(y1, y2));
-            int maxX = Math.Min(Image.Width, Math.Max(x1, x2));
-            int maxY = Math.Min(Image.Height, Math.Max(y1, y2));
-
-            int w = maxX - minX;
-            int h = maxY - minY;
+            int w = Math.Min(cur.Image.Width, Math.Max(x1, x2)) - minX;
+            int h = Math.Min(cur.Image.Height, Math.Max(y1, y2)) - minY;
 
             if (w >= 6 && h >= 6)
-            {
-                crop = new Rectangle(minX, minY, w, h);
-                InvalidateBoth();
-            }
+                PushState(cur.Image, new Rectangle(minX, minY, w, h));
         }
 
         protected override void Dispose(bool disposing)
@@ -319,8 +345,7 @@ namespace Image_View
             {
                 InvalidateCache();
                 resizeTimer?.Dispose();
-                base.Image?.Dispose();
-                base.Image = null;
+                ClearHistory();
             }
             base.Dispose(disposing);
         }

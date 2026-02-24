@@ -14,7 +14,6 @@ namespace Image_View
         private string currentFileName;
         private bool framed = false;
         private bool dark = false;
-        private Image originalImage = null;
 
         [System.Runtime.InteropServices.DllImport("dwmapi.dll", PreserveSig = true)]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, int[] val, int size);
@@ -33,7 +32,7 @@ namespace Image_View
 
         private void ApplySystemTheme()
         {
-            using (RegistryKey key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+            using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
             {
                 if (key?.GetValue("AppsUseLightTheme") is int theme && theme == 0)
                 {
@@ -49,17 +48,13 @@ namespace Image_View
         {
             try
             {
-                pictureBox.Image?.Dispose();
-                pictureBox.Image = null;
-                DisposeImage(ref originalImage);
-
                 using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 8192))
                 using (var tempImage = Image.FromStream(fs, false, false))
                 {
                     pictureBox.Image = CloneImage(tempImage);
-                    pictureBox.ResetCrop();
                     currentFileName = path;
                     UpdateTitle();
+                    pictureBox.InvalidateBoth();
                 }
             }
             catch { }
@@ -67,7 +62,10 @@ namespace Image_View
 
         private Image CloneImage(Image source)
         {
-            var format = HasTransparency(source) ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb;
+            var format = (source.PixelFormat == PixelFormat.Format32bppArgb ||
+                          source.PixelFormat == PixelFormat.Format32bppPArgb ||
+                          source.RawFormat.Equals(ImageFormat.Png))
+                ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb;
             var clone = new Bitmap(source.Width, source.Height, format);
             using (var g = Graphics.FromImage(clone))
             {
@@ -78,23 +76,13 @@ namespace Image_View
             return clone;
         }
 
-        private void DisposeImage(ref Image img)
-        {
-            img?.Dispose();
-            img = null;
-        }
-
-        private bool HasTransparency(Image img) =>
-            img.PixelFormat == PixelFormat.Format32bppArgb ||
-            img.PixelFormat == PixelFormat.Format32bppPArgb ||
-            img.RawFormat.Equals(ImageFormat.Png);
-
         private void UpdateTitle()
         {
             var crop = pictureBox.GetCrop();
-            int width = crop?.Width ?? pictureBox.Image.Width;
-            int height = crop?.Height ?? pictureBox.Image.Height;
-            Text = pictureBox.Image != null ? $"{width} x {height}   {Path.GetFileName(currentFileName)}" : "Monocle";
+            var img = pictureBox.Image;
+            int width = crop?.Width ?? img?.Width ?? 0;
+            int height = crop?.Height ?? img?.Height ?? 0;
+            Text = img != null ? $"{width} x {height}   {Path.GetFileName(currentFileName)}" : "Monocle";
         }
 
         private void Form_DragEnter(object sender, DragEventArgs e)
@@ -138,15 +126,7 @@ namespace Image_View
         private void RestoreButton_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
-
-            if (originalImage != null)
-            {
-                pictureBox.Image?.Dispose();
-                pictureBox.Image = originalImage;
-                originalImage = null;
-            }
-
-            pictureBox.ResetCrop();
+            pictureBox.Undo();
             UpdateTitle();
         }
 
@@ -187,7 +167,7 @@ namespace Image_View
             using (var dialog = new SaveFileDialog
             {
                 InitialDirectory = dir,
-                Filter = "PNG (*.png)|*.png|JPEG (*.jpg;*.jpeg)|*.jpg;*.jpeg|BMP (*.bmp)|*.bmp",
+                Filter = "PNG (*.png)|*.png|JPEG (*.jpg;*.jpeg)|*.jpg;*.jpeg|BMP (*.bmp)|*.bmp|ICO (*.ico)|*.ico",
                 FilterIndex = PickExtension(Path.GetExtension(currentFileName)),
                 FileName = Path.GetFileName(currentFileName),
                 RestoreDirectory = true
@@ -203,12 +183,18 @@ namespace Image_View
 
                         if (ext == ".jpg" || ext == ".jpeg")
                         {
+                            using (var flat = new Bitmap(imageToSave.Width, imageToSave.Height, PixelFormat.Format24bppRgb))
+                            using (var g = Graphics.FromImage(flat))
                             using (var encoderParams = new EncoderParameters(1))
                             {
+                                g.Clear(Color.White);
+                                g.DrawImage(imageToSave, 0, 0);
                                 encoderParams.Param[0] = new EncoderParameter(Encoder.Quality, 95L);
-                                imageToSave.Save(dialog.FileName, GetEncoder(ImageFormat.Jpeg), encoderParams);
+                                flat.Save(dialog.FileName, GetEncoder(ImageFormat.Jpeg), encoderParams);
                             }
                         }
+                        else if (ext == ".ico")
+                            imageToSave.Save(dialog.FileName, ImageFormat.Icon);
                         else if (ext == ".bmp")
                             imageToSave.Save(dialog.FileName, ImageFormat.Bmp);
                         else
@@ -223,23 +209,19 @@ namespace Image_View
 
         private void Form_KeyUp(object sender, KeyEventArgs e)
         {
-            if (e.Control && e.KeyCode == Keys.Z)
-                RestoreButton_Click(sender, e);
-            else if (e.Control && e.KeyCode == Keys.V)
-                PasteFromClipboard();
-            else if (e.Control && e.KeyCode == Keys.G)
-                GridButton_Click(sender, e);
+            if (e.Control && e.KeyCode == Keys.Z) RestoreButton_Click(sender, e);
+            else if (e.Control && e.KeyCode == Keys.V) PasteFromClipboard();
+            else if (e.Control && e.KeyCode == Keys.G) GridButton_Click(sender, e);
         }
 
         private void PasteFromClipboard()
         {
             if (!Clipboard.ContainsImage()) return;
-
             using (var clipboardImage = Clipboard.GetImage())
             {
                 pictureBox.Image = CloneImage(clipboardImage);
-                currentFileName = "Untitled.png";
-                pictureBox.ResetCrop();
+                if (string.IsNullOrEmpty(currentFileName))
+                    currentFileName = "Untitled.png";
                 UpdateTitle();
             }
         }
@@ -261,7 +243,6 @@ namespace Image_View
                     int scaledWidth = (int)(imageToPrint.Width * scale);
                     int scaledHeight = (int)(imageToPrint.Height * scale);
                     int x = printArea.Left + (printArea.Width - scaledWidth) / 2;
-
                     args.Graphics.DrawImage(imageToPrint, x, printArea.Top, scaledWidth, scaledHeight);
                 };
 
@@ -283,27 +264,21 @@ namespace Image_View
         private void Rotate90Button_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
-            pictureBox.Image.RotateFlip(RotateFlipType.Rotate90FlipNone);
-            pictureBox.InvalidateBoth();
-            pictureBox.Crop90();
+            pictureBox.Rotate90();
             UpdateTitle();
         }
 
         private void Rotate270Button_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
-            pictureBox.Image.RotateFlip(RotateFlipType.Rotate270FlipNone);
-            pictureBox.InvalidateBoth();
-            pictureBox.Crop270();
+            pictureBox.Rotate270();
             UpdateTitle();
         }
 
         private void MirrorButton_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
-            pictureBox.Image.RotateFlip(RotateFlipType.RotateNoneFlipX);
-            pictureBox.InvalidateBoth();
-            pictureBox.CropMirror();
+            pictureBox.Mirror();
             UpdateTitle();
         }
 
@@ -321,12 +296,9 @@ namespace Image_View
 
         private void Form_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.Control && e.KeyCode == Keys.Z)
-                RestoreButton_Click(sender, e);
-            else if (e.Control && e.KeyCode == Keys.V)
-                PasteFromClipboard();
-            else if (e.Control && e.KeyCode == Keys.G)
-                GridButton_Click(sender, e);
+            if (e.Control && e.KeyCode == Keys.Z) RestoreButton_Click(sender, e);
+            else if (e.Control && e.KeyCode == Keys.V) PasteFromClipboard();
+            else if (e.Control && e.KeyCode == Keys.G) GridButton_Click(sender, e);
         }
 
         private void RedirectButton_Click(object sender, EventArgs e)
@@ -363,29 +335,8 @@ namespace Image_View
 
                 try
                 {
-                    using (var sourceImage = pictureBox.GetVisible())
-                    {
-                        var resizedImage = new Bitmap(dialog.NewWidth, dialog.NewHeight,
-                            HasTransparency(sourceImage) ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb);
-
-                        using (var g = Graphics.FromImage(resizedImage))
-                        {
-                            g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-                            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
-                            g.InterpolationMode = dialog.Mode;
-                            g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-                            g.DrawImage(sourceImage, 0, 0, dialog.NewWidth, dialog.NewHeight);
-                        }
-
-                        if (originalImage == null)
-                            originalImage = pictureBox.Image;
-                        else
-                            pictureBox.Image?.Dispose();
-
-                        pictureBox.Image = resizedImage;
-                        pictureBox.ResetCrop();
-                        UpdateTitle();
-                    }
+                    pictureBox.Resize(dialog.NewWidth, dialog.NewHeight, dialog.Mode);
+                    UpdateTitle();
                 }
                 catch { }
             }
