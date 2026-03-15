@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Drawing.Printing;
 using System.IO;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace Image_View
@@ -140,21 +141,11 @@ namespace Image_View
             }
         }
 
-        private ImageCodecInfo GetEncoder(ImageFormat format)
-        {
-            foreach (var codec in ImageCodecInfo.GetImageDecoders())
-                if (codec.FormatID == format.Guid)
-                    return codec;
-            return null;
-        }
+        private ImageCodecInfo GetEncoder(ImageFormat format) =>
+            ImageCodecInfo.GetImageDecoders().FirstOrDefault(c => c.FormatID == format.Guid);
 
-        private int PickExtension(string ext)
-        {
-            ext = ext.ToLower();
-            if (ext == ".jpg" || ext == ".jpeg") return 2;
-            if (ext == ".bmp") return 3;
-            return 1;
-        }
+        private int PickExtension(string ext) =>
+            ext.ToLower() switch { ".jpg" or ".jpeg" => 2, ".bmp" => 3, _ => 1 };
 
         private void SaveButton_Click(object sender, EventArgs e)
         {
@@ -233,6 +224,7 @@ namespace Image_View
             try
             {
                 var imageToPrint = pictureBox.GetVisible();
+                bool printed = false;
                 var pd = new PrintDocument();
 
                 pd.PrintPage += (o, args) =>
@@ -246,7 +238,7 @@ namespace Image_View
                     args.Graphics.DrawImage(imageToPrint, x, printArea.Top, scaledWidth, scaledHeight);
                 };
 
-                pd.EndPrint += (o, args) => imageToPrint?.Dispose();
+                pd.EndPrint += (o, args) => { imageToPrint?.Dispose(); printed = true; };
 
                 using (var printDialog = new PrintDialog { Document = pd })
                 {
@@ -255,6 +247,8 @@ namespace Image_View
                     else
                         imageToPrint?.Dispose();
                 }
+
+                if (!printed) imageToPrint?.Dispose();
             }
             catch { }
         }
@@ -290,15 +284,8 @@ namespace Image_View
         private void GridButton_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
-            pictureBox.isGridding = !pictureBox.isGridding;
+            pictureBox.gridMode = (pictureBox.gridMode + 1) % 3;
             pictureBox.Invalidate();
-        }
-
-        private void Form_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Control && e.KeyCode == Keys.Z) RestoreButton_Click(sender, e);
-            else if (e.Control && e.KeyCode == Keys.V) PasteFromClipboard();
-            else if (e.Control && e.KeyCode == Keys.G) GridButton_Click(sender, e);
         }
 
         private void RedirectButton_Click(object sender, EventArgs e)

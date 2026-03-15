@@ -22,9 +22,10 @@ namespace Image_View
         private readonly Stack<State> history = new Stack<State>();
         private Rectangle? crop => history.Count > 0 ? history.Peek().Crop : (Rectangle?)null;
         private Bitmap cachedImage;
+        private (Size controlSize, Rectangle? crop) cacheKey;
         private readonly Timer resizeTimer;
         private bool isResizing;
-        public bool isGridding;
+        public int gridMode;
         public bool isFramed;
 
         private static readonly SolidBrush overlayBrush = new SolidBrush(Color.FromArgb(155, 0, 0, 0));
@@ -71,6 +72,7 @@ namespace Image_View
         {
             cachedImage?.Dispose();
             cachedImage = null;
+            cacheKey = default;
         }
 
         public void InvalidateBoth()
@@ -106,13 +108,8 @@ namespace Image_View
         {
             if (history.Count == 0) return;
             var src = history.Peek().Image;
-            var bmp = new Bitmap(src.Height, src.Width, src.PixelFormat);
-            using (var g = Graphics.FromImage(bmp))
-            {
-                g.TranslateTransform(bmp.Width, 0);
-                g.RotateTransform(90);
-                g.DrawImage(src, 0, 0);
-            }
+            var bmp = src.Clone() as Bitmap;
+            bmp.RotateFlip(RotateFlipType.Rotate90FlipNone);
             PushState(bmp, crop.HasValue
                 ? new Rectangle(src.Height - crop.Value.Y - crop.Value.Height, crop.Value.X, crop.Value.Height, crop.Value.Width)
                 : (Rectangle?)null);
@@ -122,13 +119,8 @@ namespace Image_View
         {
             if (history.Count == 0) return;
             var src = history.Peek().Image;
-            var bmp = new Bitmap(src.Height, src.Width, src.PixelFormat);
-            using (var g = Graphics.FromImage(bmp))
-            {
-                g.TranslateTransform(0, bmp.Height);
-                g.RotateTransform(270);
-                g.DrawImage(src, 0, 0);
-            }
+            var bmp = src.Clone() as Bitmap;
+            bmp.RotateFlip(RotateFlipType.Rotate270FlipNone);
             PushState(bmp, crop.HasValue
                 ? new Rectangle(crop.Value.Y, src.Width - crop.Value.X - crop.Value.Width, crop.Value.Height, crop.Value.Width)
                 : (Rectangle?)null);
@@ -138,13 +130,8 @@ namespace Image_View
         {
             if (history.Count == 0) return;
             var src = history.Peek().Image;
-            var bmp = new Bitmap(src.Width, src.Height, src.PixelFormat);
-            using (var g = Graphics.FromImage(bmp))
-            {
-                g.TranslateTransform(bmp.Width, 0);
-                g.ScaleTransform(-1, 1);
-                g.DrawImage(src, 0, 0);
-            }
+            var bmp = src.Clone() as Bitmap;
+            bmp.RotateFlip(RotateFlipType.RotateNoneFlipX);
             PushState(bmp, crop.HasValue
                 ? new Rectangle(src.Width - crop.Value.X - crop.Value.Width, crop.Value.Y, crop.Value.Width, crop.Value.Height)
                 : (Rectangle?)null);
@@ -218,21 +205,31 @@ namespace Image_View
 
         private void DrawGrid(Graphics g)
         {
-            if (!isGridding || history.Count == 0) return;
+            if (gridMode == 0 || history.Count == 0) return;
             int l = imageRect.Left, r = imageRect.Right, t = imageRect.Top, b = imageRect.Bottom;
             int w = imageRect.Width, h = imageRect.Height;
-            g.DrawLine(crossPen, l + w / 2, t, l + w / 2, b);
-            g.DrawLine(crossPen, l, t + h / 2, r, t + h / 2);
-            g.DrawLine(crossPen, l + w / 4, t, l + w / 4, b);
-            g.DrawLine(crossPen, l + 3 * w / 4, t, l + 3 * w / 4, b);
-            g.DrawLine(crossPen, l, t + h / 4, r, t + h / 4);
-            g.DrawLine(crossPen, l, t + 3 * h / 4, r, t + 3 * h / 4);
+            if (gridMode == 1)
+            {
+                g.DrawLine(crossPen, l + w / 4, t, l + w / 4, b);
+                g.DrawLine(crossPen, l + w / 2, t, l + w / 2, b);
+                g.DrawLine(crossPen, l + 3 * w / 4, t, l + 3 * w / 4, b);
+                g.DrawLine(crossPen, l, t + h / 4, r, t + h / 4);
+                g.DrawLine(crossPen, l, t + h / 2, r, t + h / 2);
+                g.DrawLine(crossPen, l, t + 3 * h / 4, r, t + 3 * h / 4);
+            }
+            else
+            {
+                g.DrawLine(crossPen, l + w / 3, t, l + w / 3, b);
+                g.DrawLine(crossPen, l + 2 * w / 3, t, l + 2 * w / 3, b);
+                g.DrawLine(crossPen, l, t + h / 3, r, t + h / 3);
+                g.DrawLine(crossPen, l, t + 2 * h / 3, r, t + 2 * h / 3);
+            }
         }
 
         private void DrawFrame(Graphics g)
         {
-            if (isFramed && history.Count > 0)
-                g.DrawRectangle(crossPen, imageRect.X - 1, imageRect.Y - 1, imageRect.Width + 1, imageRect.Height + 1);
+            if (!isFramed || history.Count == 0) return;
+            g.DrawRectangle(crossPen, imageRect.X - 1, imageRect.Y - 1, imageRect.Width + 1, imageRect.Height + 1);
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -242,10 +239,11 @@ namespace Image_View
 
             CalculateImageBounds();
 
-            if (cachedImage == null || cachedImage.Size != Size)
+            if (cachedImage == null || cacheKey != (Size, cur.Crop))
             {
                 InvalidateCache();
                 cachedImage = new Bitmap(Width, Height, PixelFormat.Format24bppRgb);
+                cacheKey = (Size, cur.Crop);
 
                 using (var g = Graphics.FromImage(cachedImage))
                 {
@@ -296,9 +294,9 @@ namespace Image_View
 
         private Point SnapToPixel(Point screenPoint)
         {
-            int snappedX = (int)Math.Round((screenPoint.X - imageRect.X) / scale);
-            int snappedY = (int)Math.Round((screenPoint.Y - imageRect.Y) / scale);
-            return new Point(imageRect.X + (int)Math.Round(snappedX * scale), imageRect.Y + (int)Math.Round(snappedY * scale));
+            int px = (int)Math.Round((screenPoint.X - imageRect.X) / scale);
+            int py = (int)Math.Round((screenPoint.Y - imageRect.Y) / scale);
+            return new Point(imageRect.X + (int)Math.Round(px * scale), imageRect.Y + (int)Math.Round(py * scale));
         }
 
         private void OnMouseMove(object sender, MouseEventArgs e)
@@ -312,7 +310,10 @@ namespace Image_View
             Cursor.Current = Cursors.Default;
             isDown = false;
             if (!p2.IsEmpty && Math.Abs(p1.X - p2.X) > 20 && Math.Abs(p1.Y - p2.Y) > 20)
+            {
+                p2 = SnapToPixel(p2);
                 ApplyCropFromDrag();
+            }
             Invalidate();
         }
 
