@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
-namespace Image_View
+namespace Lorgnette
 {
     internal static class Program
     {
@@ -16,11 +15,11 @@ namespace Image_View
             if (args.Length > 0)
             {
                 string filePath = args[0];
-                Application.Run(new form(filePath));
+                Application.Run(new Form(filePath));
             }
             else
             {
-                Application.Run(new form());
+                Application.Run(new Form());
             }
         }
     }
@@ -79,13 +78,16 @@ namespace Image_View
                     e.Graphics.FillRectangle(brush, rc);
                 }
 
-                using (Pen pen = new Pen(Color.FromArgb(100, accent), 1))
-                {
-                    rc.Width -= 1;
-                    rc.Height -= 1;
-                    e.Graphics.DrawRectangle(pen, rc);
-                }
+                using Pen pen = new Pen(Color.FromArgb(100, accent), 1);
+                rc.Width -= 1;
+                rc.Height -= 1;
+                e.Graphics.DrawRectangle(pen, rc);
             }
         }
+    }
+    internal static class Dwm
+    {
+        [DllImport("dwmapi.dll", PreserveSig = true)]
+        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, int[] val, int size);
     }
 }

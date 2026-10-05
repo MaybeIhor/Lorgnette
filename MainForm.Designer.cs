@@ -1,6 +1,6 @@
-﻿namespace Image_View
+﻿namespace Lorgnette
 {
-    partial class form
+    partial class Form
     {
         private System.ComponentModel.IContainer components = null;
 
@@ -15,7 +15,7 @@
 
         private void InitializeComponent()
         {
-            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(form));
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(Form));
             this.openFile = new System.Windows.Forms.OpenFileDialog();
             this.openButton = new System.Windows.Forms.ToolStripButton();
             this.themeButton = new System.Windows.Forms.ToolStripButton();
@@ -31,7 +31,7 @@
             this.gridButton = new System.Windows.Forms.ToolStripButton();
             this.resizeButton = new System.Windows.Forms.ToolStripButton();
             this.redirectButton = new System.Windows.Forms.ToolStripButton();
-            this.pictureBox = new Image_View.DontBlurBox();
+            this.pictureBox = new DontBlurBox();
             this.toolStrip.SuspendLayout();
             this.editBox.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.pictureBox)).BeginInit();
@@ -317,7 +317,6 @@
             this.Text = "Lorgnette";
             this.DragDrop += new System.Windows.Forms.DragEventHandler(this.Form_DragDrop);
             this.DragEnter += new System.Windows.Forms.DragEventHandler(this.Form_DragEnter);
-            this.KeyUp += new System.Windows.Forms.KeyEventHandler(this.Form_KeyUp);
             this.toolStrip.ResumeLayout(false);
             this.toolStrip.PerformLayout();
             this.editBox.ResumeLayout(false);

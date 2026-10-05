@@ -2,21 +2,15 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
-using Image_View;
 
-namespace Monocle
+namespace Lorgnette
 {
-    public partial class ResizeForm : Form
+    public partial class ResizeForm : System.Windows.Forms.Form
     {
         private bool isSmooth = true;
         public int NewWidth { get; private set; }
         public int NewHeight { get; private set; }
         public InterpolationMode Mode => isSmooth ? InterpolationMode.HighQualityBicubic : InterpolationMode.NearestNeighbor;
-
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll", PreserveSig = true)]
-        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, int[] val, int size);
-
-        private static readonly int[] darkAttr = new[] { 1 };
 
         public ResizeForm(int currentWidth, int currentHeight, bool dark)
         {
@@ -31,7 +25,8 @@ namespace Monocle
 
         public void GetDark()
         {
-            DwmSetWindowAttribute(Handle, 20, darkAttr, 4);
+            Dwm.DwmSetWindowAttribute(Handle, 20, new[] { 1 }, 4);
+
             var bg = Color.FromArgb(25, 25, 25);
             toolStrip.BackColor = widthBox.BackColor = heightBox.BackColor = bg;
             toolStrip.ForeColor = widthBox.ForeColor = heightBox.ForeColor = SystemColors.Window;

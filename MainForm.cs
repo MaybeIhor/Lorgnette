@@ -1,30 +1,28 @@
 ﻿using Microsoft.Win32;
-using Monocle;
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Drawing.Printing;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace Image_View
+namespace Lorgnette
 {
-    public partial class form : Form
+    public partial class Form : System.Windows.Forms.Form
     {
         private string currentFileName;
-        private bool framed = false;
-        private bool dark = false;
+        private bool dark;
 
-        [System.Runtime.InteropServices.DllImport("dwmapi.dll", PreserveSig = true)]
-        public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, int[] val, int size);
-
-        public form(string filePath = null)
+        public Form(string filePath = null)
         {
             InitializeComponent();
             ApplySystemTheme();
+
             toolStrip.Renderer = new FixedRenderer();
             editBox.Renderer = new FixedRenderer();
+
             SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint, true);
 
             if (!string.IsNullOrEmpty(filePath))
@@ -33,57 +31,61 @@ namespace Image_View
 
         private void ApplySystemTheme()
         {
-            using (var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"))
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+
+            if (key?.GetValue("AppsUseLightTheme") is int theme && theme == 0)
             {
-                if (key?.GetValue("AppsUseLightTheme") is int theme && theme == 0)
-                {
-                    DwmSetWindowAttribute(Handle, 20, new[] { 1 }, 4);
-                    BackColor = editBox.BackColor = Color.FromArgb(255, 25, 25, 25);
-                    toolStrip.ForeColor = editBox.ForeColor = SystemColors.Window;
-                    dark = true;
-                }
+                Dwm.DwmSetWindowAttribute(Handle, 20, new[] { 1 }, 4);
+                BackColor = editBox.BackColor = Color.FromArgb(25, 25, 25);
+                toolStrip.ForeColor = editBox.ForeColor = SystemColors.Window;
+                dark = true;
             }
         }
 
         private void LoadImage(string path)
         {
+            if (string.IsNullOrEmpty(path)) return;
+
             try
             {
-                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 8192))
-                using (var tempImage = Image.FromStream(fs, false, false))
-                {
-                    pictureBox.Image = CloneImage(tempImage);
-                    currentFileName = path;
-                    UpdateTitle();
-                    pictureBox.InvalidateBoth();
-                }
+                pictureBox.Image = null;
+
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 8192, FileOptions.SequentialScan);
+                using var tempImage = Image.FromStream(fs, false, false);
+                var loaded = CloneImage(tempImage);
+
+                if (loaded == null) return;
+
+                pictureBox.Image = loaded;
+                currentFileName = path;
+                UpdateTitle();
             }
             catch { }
         }
 
-        private Image CloneImage(Image source)
+        private static Image CloneImage(Image source)
         {
-            var format = (source.PixelFormat == PixelFormat.Format32bppArgb ||
-                          source.PixelFormat == PixelFormat.Format32bppPArgb ||
-                          source.RawFormat.Equals(ImageFormat.Png))
-                ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb;
-            var clone = new Bitmap(source.Width, source.Height, format);
-            using (var g = Graphics.FromImage(clone))
-            {
-                g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy;
-                g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighSpeed;
-                g.DrawImage(source, 0, 0, source.Width, source.Height);
-            }
+            if (source == null || source.Width <= 0 || source.Height <= 0)
+                return null;
+
+            var clone = new Bitmap(source.Width, source.Height, GetPixelFormat(source));
+
+            using var g = Graphics.FromImage(clone);
+            g.CompositingMode = CompositingMode.SourceCopy;
+            g.CompositingQuality = CompositingQuality.HighSpeed;
+            g.DrawImage(source, 0, 0, source.Width, source.Height);
+
             return clone;
         }
+
+        private static PixelFormat GetPixelFormat(Image image) => (Image.IsAlphaPixelFormat(image.PixelFormat) || (image.Flags & 16384) != 0) ? PixelFormat.Format32bppArgb : PixelFormat.Format24bppRgb;
 
         private void UpdateTitle()
         {
             var crop = pictureBox.GetCrop();
             var img = pictureBox.Image;
-            int width = crop?.Width ?? img?.Width ?? 0;
-            int height = crop?.Height ?? img?.Height ?? 0;
-            Text = img != null ? $"{width} x {height}   {Path.GetFileName(currentFileName)}" : "Monocle";
+
+            Text = img != null ? $"{crop?.Width ?? img.Width} × {crop?.Height ?? img.Height}   {Path.GetFileName(currentFileName)}" : "Lorgnette";
         }
 
         private void Form_DragEnter(object sender, DragEventArgs e)
@@ -100,17 +102,16 @@ namespace Image_View
 
         private void OpenButton_Click(object sender, EventArgs e)
         {
-            using (var dialog = new OpenFileDialog
+            using var dialog = new OpenFileDialog
             {
                 InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
                 Filter = "All image files (*.png;*.jpg;*.ico;*.jpeg;*.bmp;*.tiff;*.jpe;*.jfif;*.exif;*.gif)|*.png;*.jpg;*.ico;*.jpeg;*.bmp;*.tiff;*.jpe;*.jfif;*.exif;*.gif|PNG (*.png)|*.png|JPEG (*.jpg;*.jpeg;*.jpe;*.jfif;*.exif)|*.jpg;*.jpeg;*.jpe;*.jfif;*.exif|TIFF (*.tiff)|*.tiff|BMP (*.bmp)|*.bmp|ICO (*.ico)|*.ico",
                 FilterIndex = 1,
                 RestoreDirectory = true
-            })
-            {
-                if (dialog.ShowDialog() == DialogResult.OK)
-                    LoadImage(dialog.FileName);
-            }
+            };
+
+            if (dialog.ShowDialog() == DialogResult.OK)
+                LoadImage(dialog.FileName);
         }
 
         private void PictureBox_MouseEnter(object sender, EventArgs e) => pictureBox.Focus();
@@ -118,15 +119,16 @@ namespace Image_View
         private void ThemeButton_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
+
             pictureBox.isFramed = !pictureBox.isFramed;
             pictureBox.Invalidate();
-            themeButton.Text = framed ? "◇" : "◈";
-            framed = !framed;
+            themeButton.Text = pictureBox.isFramed ? "◈" : "◇";
         }
 
         private void RestoreButton_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
+
             pictureBox.Undo();
             UpdateTitle();
         }
@@ -134,6 +136,7 @@ namespace Image_View
         private void PictureBox_MouseDown(object sender, MouseEventArgs e)
         {
             editBox.Visible = false;
+
             if (pictureBox.Image != null && e.Button == MouseButtons.Right)
             {
                 toolStrip.Visible = !toolStrip.Visible;
@@ -141,11 +144,21 @@ namespace Image_View
             }
         }
 
-        private ImageCodecInfo GetEncoder(ImageFormat format) =>
+        private static ImageCodecInfo GetEncoder(ImageFormat format) =>
             ImageCodecInfo.GetImageDecoders().FirstOrDefault(c => c.FormatID == format.Guid);
 
-        private int PickExtension(string ext) =>
-            ext.ToLower() switch { ".jpg" or ".jpeg" => 2, ".bmp" => 3, _ => 1 };
+        private static void SaveJpeg(Image image, string path)
+        {
+            using var flat = new Bitmap(image.Width, image.Height, PixelFormat.Format24bppRgb);
+            using var g = Graphics.FromImage(flat);
+            using var encoderParams = new EncoderParameters(1);
+
+            g.Clear(Color.White);
+            g.DrawImage(image, 0, 0);
+
+            encoderParams.Param[0] = new EncoderParameter(Encoder.Quality, 95L);
+            flat.Save(path, GetEncoder(ImageFormat.Jpeg), encoderParams);
+        }
 
         private void SaveButton_Click(object sender, EventArgs e)
         {
@@ -155,102 +168,105 @@ namespace Image_View
                 ? Path.GetDirectoryName(currentFileName)
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
 
-            using (var dialog = new SaveFileDialog
+            using var dialog = new SaveFileDialog
             {
                 InitialDirectory = dir,
                 Filter = "PNG (*.png)|*.png|JPEG (*.jpg;*.jpeg)|*.jpg;*.jpeg|BMP (*.bmp)|*.bmp|ICO (*.ico)|*.ico",
-                FilterIndex = PickExtension(Path.GetExtension(currentFileName)),
+                FilterIndex = Path.GetExtension(currentFileName).ToLower() switch { ".jpg" or ".jpeg" or ".jpe" or ".jfif" or ".exif" => 2, ".bmp" => 3, _ => 1 },
                 FileName = Path.GetFileName(currentFileName),
                 RestoreDirectory = true
-            })
+            };
+
+            if (dialog.ShowDialog() != DialogResult.OK) return;
+
+            try
             {
-                if (dialog.ShowDialog() != DialogResult.OK) return;
+                using var imageToSave = pictureBox.GetVisible();
+                string ext = Path.GetExtension(dialog.FileName).ToLower();
 
-                try
-                {
-                    using (var imageToSave = pictureBox.GetVisible())
-                    {
-                        string ext = Path.GetExtension(dialog.FileName).ToLower();
+                if (ext is ".jpg" or ".jpeg")
+                    SaveJpeg(imageToSave, dialog.FileName);
+                else if (ext == ".ico")
+                    imageToSave.Save(dialog.FileName, ImageFormat.Icon);
+                else if (ext == ".bmp")
+                    imageToSave.Save(dialog.FileName, ImageFormat.Bmp);
+                else
+                    imageToSave.Save(dialog.FileName);
 
-                        if (ext == ".jpg" || ext == ".jpeg")
-                        {
-                            using (var flat = new Bitmap(imageToSave.Width, imageToSave.Height, PixelFormat.Format24bppRgb))
-                            using (var g = Graphics.FromImage(flat))
-                            using (var encoderParams = new EncoderParameters(1))
-                            {
-                                g.Clear(Color.White);
-                                g.DrawImage(imageToSave, 0, 0);
-                                encoderParams.Param[0] = new EncoderParameter(Encoder.Quality, 95L);
-                                flat.Save(dialog.FileName, GetEncoder(ImageFormat.Jpeg), encoderParams);
-                            }
-                        }
-                        else if (ext == ".ico")
-                            imageToSave.Save(dialog.FileName, ImageFormat.Icon);
-                        else if (ext == ".bmp")
-                            imageToSave.Save(dialog.FileName, ImageFormat.Bmp);
-                        else
-                            imageToSave.Save(dialog.FileName);
-                        currentFileName = dialog.FileName;
-                        UpdateTitle();
-                    }
-                }
-                catch { }
+                currentFileName = dialog.FileName;
+                UpdateTitle();
             }
+            catch { }
         }
 
-        private void Form_KeyUp(object sender, KeyEventArgs e)
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (e.Control && e.KeyCode == Keys.Z) RestoreButton_Click(sender, e);
-            else if (e.Control && e.KeyCode == Keys.V) PasteFromClipboard();
-            else if (e.Control && e.KeyCode == Keys.G) GridButton_Click(sender, e);
+            if (keyData == (Keys.Control | Keys.V)) { PasteFromClipboard(); return true; }
+            if (keyData == (Keys.Control | Keys.Z)) { RestoreButton_Click(this, EventArgs.Empty); return true; }
+            if (keyData == (Keys.Control | Keys.G)) { GridButton_Click(this, EventArgs.Empty); return true; }
+            if (keyData == (Keys.Control | Keys.C)) { Clipboard.SetImage(pictureBox.GetVisible()); return true; }
+
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         private void PasteFromClipboard()
         {
-            if (!Clipboard.ContainsImage()) return;
-            using (var clipboardImage = Clipboard.GetImage())
+            if (Clipboard.ContainsFileDropList())
             {
-                pictureBox.Image = CloneImage(clipboardImage);
-                if (string.IsNullOrEmpty(currentFileName))
-                    currentFileName = "Untitled.png";
-                UpdateTitle();
+                var files = Clipboard.GetFileDropList();
+
+                if (files.Count > 0)
+                    LoadImage(files[0]);
+
+                return;
             }
+
+            if (!Clipboard.ContainsImage()) return;
+
+            using var clipboardImage = Clipboard.GetImage();
+
+            pictureBox.Image = null;
+            pictureBox.Image = CloneImage(clipboardImage);
+
+            if (string.IsNullOrEmpty(currentFileName))
+                currentFileName = "Untitled.png";
+
+            UpdateTitle();
         }
 
         private void PrintButton_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
 
+            Image imageToPrint = null;
+
             try
             {
-                var imageToPrint = pictureBox.GetVisible();
-                bool printed = false;
-                var pd = new PrintDocument();
+                imageToPrint = pictureBox.GetVisible();
 
+                var pd = new PrintDocument();
                 pd.PrintPage += (o, args) =>
                 {
                     var printArea = args.MarginBounds;
-                    float scale = Math.Min((float)printArea.Width / imageToPrint.Width,
-                                          (float)printArea.Height / imageToPrint.Height);
+                    float scale = Math.Min((float)printArea.Width / imageToPrint.Width, (float)printArea.Height / imageToPrint.Height);
+
                     int scaledWidth = (int)(imageToPrint.Width * scale);
                     int scaledHeight = (int)(imageToPrint.Height * scale);
                     int x = printArea.Left + (printArea.Width - scaledWidth) / 2;
+
                     args.Graphics.DrawImage(imageToPrint, x, printArea.Top, scaledWidth, scaledHeight);
                 };
 
-                pd.EndPrint += (o, args) => { imageToPrint?.Dispose(); printed = true; };
+                using var printDialog = new PrintDialog { Document = pd };
 
-                using (var printDialog = new PrintDialog { Document = pd })
-                {
-                    if (printDialog.ShowDialog() == DialogResult.OK)
-                        pd.Print();
-                    else
-                        imageToPrint?.Dispose();
-                }
-
-                if (!printed) imageToPrint?.Dispose();
+                if (printDialog.ShowDialog() == DialogResult.OK)
+                    pd.Print();
             }
             catch { }
+            finally
+            {
+                imageToPrint?.Dispose();
+            }
         }
 
         private void EditButton_Click(object sender, EventArgs e) => editBox.Visible = !editBox.Visible;
@@ -258,6 +274,7 @@ namespace Image_View
         private void Rotate90Button_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
+
             pictureBox.Rotate90();
             UpdateTitle();
         }
@@ -265,6 +282,7 @@ namespace Image_View
         private void Rotate270Button_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
+
             pictureBox.Rotate270();
             UpdateTitle();
         }
@@ -272,18 +290,21 @@ namespace Image_View
         private void MirrorButton_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
+
             pictureBox.Mirror();
             UpdateTitle();
         }
 
         private void PictureBox_MouseUp(object sender, MouseEventArgs e)
         {
-            if (pictureBox.Image != null) UpdateTitle();
+            if (pictureBox.Image != null)
+                UpdateTitle();
         }
 
         private void GridButton_Click(object sender, EventArgs e)
         {
             if (pictureBox.Image == null) return;
+
             pictureBox.gridMode = (pictureBox.gridMode + 1) % 3;
             pictureBox.Invalidate();
         }
@@ -294,15 +315,32 @@ namespace Image_View
 
             try
             {
-                string tempPath = Path.Combine(Path.GetTempPath(), Path.GetFileName(currentFileName));
-                using (var imageToEdit = pictureBox.GetVisible())
-                    imageToEdit.Save(tempPath, ImageFormat.Png);
+                string name = string.IsNullOrEmpty(currentFileName) ? "Untitled.png" : Path.GetFileName(currentFileName);
+                string ext = Path.GetExtension(name).ToLowerInvariant();
+
+                if (ext is not (".png" or ".jpg" or ".jpeg" or ".jpe" or ".jfif" or ".exif" or ".bmp" or ".ico"))
+                    ext = ".png";
+
+                string tempPath = Path.Combine(Path.GetTempPath(), name);
+
+                using var imageToRedirect = pictureBox.GetVisible();
+                if (imageToRedirect == null) return;
+
+                if (ext is ".jpg" or ".jpeg" or ".jpe" or ".jfif" or ".exif")
+                    SaveJpeg(imageToRedirect, tempPath);
+                else if (ext == ".bmp")
+                    imageToRedirect.Save(tempPath, ImageFormat.Bmp);
+                else if (ext == ".ico")
+                    imageToRedirect.Save(tempPath, ImageFormat.Icon);
+                else
+                    imageToRedirect.Save(tempPath, ImageFormat.Png);
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = "rundll32.exe",
                     Arguments = $"shell32.dll,OpenAs_RunDLL {tempPath}",
-                    UseShellExecute = false
+                    UseShellExecute = false,
+                    CreateNoWindow = true
                 });
             }
             catch { }
@@ -316,17 +354,17 @@ namespace Image_View
             int currentWidth = crop?.Width ?? pictureBox.Image.Width;
             int currentHeight = crop?.Height ?? pictureBox.Image.Height;
 
-            using (var dialog = new ResizeForm(currentWidth, currentHeight, dark))
-            {
-                if (dialog.ShowDialog() != DialogResult.OK || (dialog.NewWidth == currentWidth && dialog.NewHeight == currentHeight)) return;
+            using var dialog = new ResizeForm(currentWidth, currentHeight, dark);
 
-                try
-                {
-                    pictureBox.Resize(dialog.NewWidth, dialog.NewHeight, dialog.Mode);
-                    UpdateTitle();
-                }
-                catch { }
+            if (dialog.ShowDialog() != DialogResult.OK || (dialog.NewWidth == currentWidth && dialog.NewHeight == currentHeight))
+                return;
+
+            try
+            {
+                pictureBox.Resize(dialog.NewWidth, dialog.NewHeight, dialog.Mode);
+                UpdateTitle();
             }
+            catch { }
         }
     }
 }

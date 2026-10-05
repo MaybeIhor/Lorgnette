@@ -1,4 +1,4 @@
-﻿namespace Monocle
+﻿namespace Lorgnette
 {
     partial class ResizeForm
     {
@@ -29,9 +29,8 @@
         private void InitializeComponent()
         {
             this.toolStrip = new System.Windows.Forms.ToolStrip();
-            this.widthLabel = new System.Windows.Forms.ToolStripLabel();
             this.widthBox = new System.Windows.Forms.ToolStripTextBox();
-            this.heightLabel = new System.Windows.Forms.ToolStripLabel();
+            this.xLabel = new System.Windows.Forms.ToolStripLabel();
             this.heightBox = new System.Windows.Forms.ToolStripTextBox();
             this.smoothButton = new System.Windows.Forms.ToolStripButton();
             this.okButton = new System.Windows.Forms.ToolStripButton();
@@ -51,9 +50,8 @@
             this.toolStrip.GripStyle = System.Windows.Forms.ToolStripGripStyle.Hidden;
             this.toolStrip.ImageScalingSize = new System.Drawing.Size(20, 20);
             this.toolStrip.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
-            this.widthLabel,
             this.widthBox,
-            this.heightLabel,
+            this.xLabel,
             this.heightBox,
             this.smoothButton,
             this.okButton,
@@ -65,48 +63,40 @@
             this.toolStrip.RenderMode = System.Windows.Forms.ToolStripRenderMode.System;
             this.toolStrip.RightToLeft = System.Windows.Forms.RightToLeft.No;
             this.toolStrip.ShowItemToolTips = false;
-            this.toolStrip.Size = new System.Drawing.Size(164, 122);
+            this.toolStrip.Size = new System.Drawing.Size(164, 93);
             this.toolStrip.TabIndex = 3;
-            // 
-            // widthLabel
-            // 
-            this.widthLabel.AutoSize = false;
-            this.widthLabel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.None;
-            this.widthLabel.Margin = new System.Windows.Forms.Padding(5, 5, 5, 0);
-            this.widthLabel.Name = "widthLabel";
-            this.widthLabel.Size = new System.Drawing.Size(23, 23);
-            this.widthLabel.Text = "W";
-            this.widthLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
             // widthBox
             // 
             this.widthBox.AutoSize = false;
             this.widthBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.widthBox.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.widthBox.Margin = new System.Windows.Forms.Padding(51, 5, 5, 0);
+            this.widthBox.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.widthBox.Margin = new System.Windows.Forms.Padding(5, 6, 0, 0);
             this.widthBox.Name = "widthBox";
             this.widthBox.Overflow = System.Windows.Forms.ToolStripItemOverflow.Never;
-            this.widthBox.Size = new System.Drawing.Size(75, 23);
+            this.widthBox.Size = new System.Drawing.Size(64, 21);
             // 
-            // heightLabel
+            // xLabel
             // 
-            this.heightLabel.AutoSize = false;
-            this.heightLabel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.None;
-            this.heightLabel.Margin = new System.Windows.Forms.Padding(5, 5, 5, 0);
-            this.heightLabel.Name = "heightLabel";
-            this.heightLabel.Size = new System.Drawing.Size(23, 23);
-            this.heightLabel.Text = "H";
-            this.heightLabel.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
+            this.xLabel.AutoSize = false;
+            this.xLabel.BackgroundImageLayout = System.Windows.Forms.ImageLayout.None;
+            this.xLabel.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.xLabel.ImageScaling = System.Windows.Forms.ToolStripItemImageScaling.None;
+            this.xLabel.Margin = new System.Windows.Forms.Padding(2, 4, 0, 0);
+            this.xLabel.Name = "xLabel";
+            this.xLabel.Overflow = System.Windows.Forms.ToolStripItemOverflow.Never;
+            this.xLabel.Size = new System.Drawing.Size(23, 23);
+            this.xLabel.Text = "×";
             // 
             // heightBox
             // 
             this.heightBox.AutoSize = false;
             this.heightBox.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
-            this.heightBox.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.heightBox.Margin = new System.Windows.Forms.Padding(51, 5, 5, 0);
+            this.heightBox.Font = new System.Drawing.Font("Microsoft Sans Serif", 9F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.heightBox.Margin = new System.Windows.Forms.Padding(0, 6, 5, 0);
             this.heightBox.Name = "heightBox";
             this.heightBox.Overflow = System.Windows.Forms.ToolStripItemOverflow.Never;
-            this.heightBox.Size = new System.Drawing.Size(75, 23);
+            this.heightBox.Size = new System.Drawing.Size(65, 21);
             // 
             // smoothButton
             // 
@@ -159,7 +149,7 @@
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.BackColor = System.Drawing.SystemColors.Window;
             this.BackgroundImageLayout = System.Windows.Forms.ImageLayout.None;
-            this.ClientSize = new System.Drawing.Size(164, 122);
+            this.ClientSize = new System.Drawing.Size(164, 93);
             this.Controls.Add(this.toolStrip);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
@@ -184,7 +174,6 @@
         private System.Windows.Forms.ToolStripButton okButton;
         private System.Windows.Forms.ToolStripButton cancelButton;
         private System.Windows.Forms.ToolStripTextBox heightBox;
-        private System.Windows.Forms.ToolStripLabel widthLabel;
-        private System.Windows.Forms.ToolStripLabel heightLabel;
+        private System.Windows.Forms.ToolStripLabel xLabel;
     }
 }
